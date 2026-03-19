@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Y-Reach Analytics — Logic Foundry</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Fonts: DM Serif Display (authority) + IBM Plex Mono (data) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy:   { DEFAULT: '#0D1B2A', 50: '#e8edf3', 900: '#060e16' },
+            amber:  { brand: '#E8A020', soft: '#F5C96A', dim: '#7A5210' },
+            slate:  { card: '#162033', border: '#243044' },
+          },
+          fontFamily: {
+            display: ['"DM Serif Display"', 'serif'],
+            body:    ['Manrope', 'sans-serif'],
+            mono:    ['"IBM Plex Mono"', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* ── Base ────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background-color: #0D1B2A;
+      font-family: 'Manrope', sans-serif;
+      color: #e8edf3;
+      min-height: 100vh;
+      /* subtle grid texture */
+      background-image:
+        linear-gradient(rgba(232,160,32,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(232,160,32,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    /* ── Upload Zone ─────────────────────────────────────────── */
+    #drop-zone {
+      border: 2px dashed #243044;
+      transition: border-color 0.25s, background-color 0.25s, transform 0.2s;
+      cursor: pointer;
+    }
+    #drop-zone:hover,
+    #drop-zone.drag-over {
+      border-color: #E8A020;
+      background-color: rgba(232,160,32,0.06);
+      transform: scale(1.005);
+    }
+    #drop-zone.drag-over { box-shadow: 0 0 0 4px rgba(232,160,32,0.15); }
+
+    /* ── Placeholder shimmer ─────────────────────────────────── */
+    @keyframes shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position:  400px 0; }
+    }
+    .placeholder-card {
+      background: linear-gradient(
+        90deg,
+        #162033 25%,
+        #1e2e45 50%,
+        #162033 75%
+      );
+      background-size: 800px 100%;
+      animation: shimmer 2.2s infinite linear;
+    }
+
+    /* ── Stat badge pulse on load ────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.5s ease both; }
+    .delay-1 { animation-delay: 0.1s; }
+    .delay-2 { animation-delay: 0.2s; }
+    .delay-3 { animation-delay: 0.3s; }
+    .delay-4 { animation-delay: 0.4s; }
+
+    /* ── Scrollbar ───────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0D1B2A; }
+    ::-webkit-scrollbar-thumb { background: #243044; border-radius: 3px; }
+  </style>
+</head>
+
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TOP NAV
+  ═══════════════════════════════════════════════════════════ -->
+  <header class="border-b border-slate-border sticky top-0 z-50 backdrop-blur-md bg-navy/80">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+
+      <!-- Wordmark -->
+      <div class="flex items-center gap-3">
+        <!-- Y glyph -->
+        <div class="w-8 h-8 rounded-sm bg-amber-brand flex items-center justify-center flex-shrink-0">
+          <span class="font-display text-navy font-bold text-lg leading-none">Y</span>
+        </div>
+        <div>
+          <p class="font-display text-white text-base leading-tight tracking-wide">Y-Reach Analytics</p>
+          <p class="font-mono text-[10px] text-amber-brand/70 leading-none tracking-widest uppercase">by Logic Foundry</p>
+        </div>
+      </div>
+
+      <!-- Status pill -->
+      <div id="status-pill" class="flex items-center gap-2 font-mono text-xs text-slate-400 bg-slate-card border border-slate-border rounded-full px-3 py-1.5">
+        <span class="w-2 h-2 rounded-full bg-slate-500 inline-block"></span>
+        <span id="status-text">Awaiting data file</span>
+      </div>
+
+    </div>
+  </header>
+
+
+  <!-- ═══════════════════════════════════════════════════════════
+       HERO / UPLOAD SECTION
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="max-w-7xl mx-auto px-6 pt-14 pb-10">
+
+    <div class="mb-10 fade-up">
+      <h1 class="font-display text-4xl md:text-5xl text-white leading-tight">
+        Community Impact,<br />
+        <em class="text-amber-brand not-italic">Grant-Ready.</em>
+      </h1>
+      <p class="mt-3 text-slate-400 font-body max-w-xl text-sm leading-relaxed">
+        Drop your raw Daxko CSV export below. Y-Reach instantly calculates unduplicated demographics, geographic reach, and attendance frequency — no formulas, no cleanup.
+      </p>
+    </div>
+
+    <!-- Drop Zone -->
+    <div
+      id="drop-zone"
+      class="relative rounded-xl p-10 flex flex-col items-center justify-center text-center gap-4 fade-up delay-1"
+      style="min-height: 220px;"
+    >
+      <!-- Hidden file input -->
+      <input type="file" id="csv-input" accept=".csv" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+
+      <!-- Upload icon -->
+      <div class="w-14 h-14 rounded-full border border-slate-border flex items-center justify-center bg-slate-card">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-amber-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+        </svg>
+      </div>
+
+      <div>
+        <p class="font-body font-semibold text-white text-base">Drag & drop your CSV here</p>
+        <p class="text-slate-400 text-sm mt-1">or <span class="text-amber-brand underline underline-offset-2 cursor-pointer">click to browse</span></p>
+      </div>
+
+      <p class="font-mono text-[11px] text-slate-500 mt-2">
+        Required columns: Member_ID · Age · Zip_Code · Income_Bracket · Financial_Assistance_Flag · Check_In_Date
+      </p>
+
+      <!-- Success state (hidden by default) -->
+      <div id="file-loaded-badge" class="hidden items-center gap-2 bg-green-900/30 border border-green-700/40 rounded-full px-4 py-2 font-mono text-xs text-green-400">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <span id="file-name-display">data.csv loaded</span>
+      </div>
+    </div>
+
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════
+       KPI STAT CARDS  (populated by JS)
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="max-w-7xl mx-auto px-6 pb-8">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+      <!-- Card template × 4 -->
+      <div class="stat-card fade-up delay-1 rounded-xl bg-slate-card border border-slate-border p-5">
+        <p class="font-mono text-[10px] uppercase tracking-widest text-slate-500 mb-2">Unique Members</p>
+        <p id="kpi-unique" class="font-display text-3xl text-white">—</p>
+        <p class="font-mono text-[11px] text-slate-500 mt-1">unduplicated headcount</p>
+      </div>
+
+      <div class="stat-card fade-up delay-2 rounded-xl bg-slate-card border border-slate-border p-5">
+        <p class="font-mono text-[10px] uppercase tracking-widest text-slate-500 mb-2">On Financial Aid</p>
+        <p id="kpi-assistance" class="font-display text-3xl text-amber-brand">—</p>
+        <p class="font-mono text-[11px] text-slate-500 mt-1">members flagged</p>
+      </div>
+
+      <div class="stat-card fade-up delay-3 rounded-xl bg-slate-card border border-slate-border p-5">
+        <p class="font-mono text-[10px] uppercase tracking-widest text-slate-500 mb-2">Zip Codes Reached</p>
+        <p id="kpi-zips" class="font-display text-3xl text-white">—</p>
+        <p class="font-mono text-[11px] text-slate-500 mt-1">geographic footprint</p>
+      </div>
+
+      <div class="stat-card fade-up delay-4 rounded-xl bg-slate-card border border-slate-border p-5">
+        <p class="font-mono text-[10px] uppercase tracking-widest text-slate-500 mb-2">Youth Visits / Member</p>
+        <p id="kpi-youth-avg" class="font-display text-3xl text-white">—</p>
+        <p class="font-mono text-[11px] text-slate-500 mt-1">ages 0–17 on aid</p>
+      </div>
+
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════
+       CHART GRID  (placeholders)
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="max-w-7xl mx-auto px-6 pb-16">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      <!-- Age Demographics chart -->
+      <div class="rounded-xl bg-slate-card border border-slate-border p-6 flex flex-col gap-4">
+        <div>
+          <h2 class="font-display text-lg text-white">Age Demographics</h2>
+          <p class="font-mono text-[11px] text-slate-500">Unique members by grant-standard age bracket</p>
+        </div>
+        <div class="relative flex-1" style="min-height: 240px;">
+          <!-- Shimmer placeholder — replaced by canvas in Phase 4 -->
+          <div id="chart-age-placeholder" class="placeholder-card rounded-lg absolute inset-0"></div>
+          <canvas id="chart-age" class="hidden w-full h-full"></canvas>
+        </div>
+      </div>
+
+      <!-- Geographic Impact chart -->
+      <div class="rounded-xl bg-slate-card border border-slate-border p-6 flex flex-col gap-4">
+        <div>
+          <h2 class="font-display text-lg text-white">Geographic Impact</h2>
+          <p class="font-mono text-[11px] text-slate-500">Financial-assistance members by zip code</p>
+        </div>
+        <div class="relative flex-1" style="min-height: 240px;">
+          <div id="chart-geo-placeholder" class="placeholder-card rounded-lg absolute inset-0"></div>
+          <canvas id="chart-geo" class="hidden w-full h-full"></canvas>
+        </div>
+      </div>
+
+      <!-- Attendance Frequency chart (full width) -->
+      <div class="md:col-span-2 rounded-xl bg-slate-card border border-slate-border p-6 flex flex-col gap-4">
+        <div>
+          <h2 class="font-display text-lg text-white">Youth Attendance Frequency</h2>
+          <p class="font-mono text-[11px] text-slate-500">Avg. visits per member — youth (0–17) on financial assistance</p>
+        </div>
+        <div class="relative flex-1" style="min-height: 200px;">
+          <div id="chart-freq-placeholder" class="placeholder-card rounded-lg absolute inset-0"></div>
+          <canvas id="chart-freq" class="hidden w-full h-full"></canvas>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════
+       FOOTER
+  ═══════════════════════════════════════════════════════════ -->
+  <footer class="border-t border-slate-border">
+    <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+      <p class="font-mono text-[11px] text-slate-600">© 2025 Logic Foundry · Y-Reach Analytics</p>
+      <p class="font-mono text-[11px] text-slate-600">All data processed locally · Nothing leaves your browser</p>
+    </div>
+  </footer>
+
+
+  <!-- CDN Scripts (Papa Parse + Chart.js — ready for Phase 2 & 4) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+
+  <!-- App logic (Phase 2+) -->
+  <script src="app.js"></script>
+
+</body>
+</html>
