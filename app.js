@@ -1,6 +1,9 @@
+App · JS
+Copy
+
 /* ─────────────────────────────────────────────────────────────
-   Y-Reach Analytics · app.js
-   Phase 4: Narrative Generator (final).
+   Y-Reach / RIEC-Reach Analytics · app.js
+   Phase 4+: Multi-org profile support (YMCA + RIEC).
 ───────────────────────────────────────────────────────────── */
  
 const dropZone        = document.getElementById('drop-zone');
@@ -10,12 +13,66 @@ const statusPill      = document.getElementById('status-pill');
 const fileLoadedBadge = document.getElementById('file-loaded-badge');
 const fileNameDisplay = document.getElementById('file-name-display');
  
-/* Module-level metrics reference — set once CSV is analysed,
-   read by narrative generator when any Copy button is clicked. */
-let _metrics = null;
+/* Module-level state */
+let _metrics     = null;
+let _orgProfile  = 'ymca';   // 'ymca' | 'riec'  — set by detectOrgProfile()
  
 /* ── Chart instance registry ─────────────────────────────── */
 const chartInstances = { age: null, geo: null, freq: null };
+ 
+/* ═══════════════════════════════════════════════════════════════
+   ORG PROFILE DETECTION
+   Like a key card reader: the uploaded filename is scanned for
+   known org identifiers before any data is processed. This
+   gates the correct tag set and UI branding downstream.
+═══════════════════════════════════════════════════════════════ */
+ 
+/* Known RIEC signals — checked against filename and Member_ID prefixes */
+const RIEC_SIGNALS = ['riec', 'ri education center', 'ri-ed', 'hope', 'riecenter'];
+ 
+function detectOrgProfile(file, rawData) {
+  const filenameLower = file.name.toLowerCase();
+ 
+  // ① Filename match (fastest, most reliable signal)
+  if (RIEC_SIGNALS.some(s => filenameLower.includes(s))) return 'riec';
+ 
+  // ② Member_ID prefix scan — RIEC IDs expected as 'R-XXXX' or 'RIEC-XXXX'
+  if (rawData?.length) {
+    const sample = rawData.slice(0, 20);
+    const riecIds = sample.filter(row => {
+      const id = String(row.Member_ID ?? '').toUpperCase();
+      return id.startsWith('R-') || id.startsWith('RIEC');
+    });
+    if (riecIds.length >= sample.length * 0.5) return 'riec';
+  }
+ 
+  return 'ymca';
+}
+ 
+/* ── applyOrgBranding: update nav wordmark for active profile ──
+   Touches only the two text nodes inside the existing nav
+   structure — no structural HTML changes required.            */
+function applyOrgBranding(profile) {
+  const wordmark = document.querySelector('header .font-display');
+  const byline   = document.querySelector('header .font-mono');
+ 
+  if (!wordmark || !byline) return;
+ 
+  if (profile === 'riec') {
+    wordmark.textContent = 'RIEC-Reach Analytics';
+    byline.textContent   = 'by Logic Foundry · RIEC Profile';
+ 
+    // Swap the Y glyph tile to show 'R'
+    const glyph = document.querySelector('header .bg-amber-brand span');
+    if (glyph) glyph.textContent = 'R';
+  } else {
+    wordmark.textContent = 'Y-Reach Analytics';
+    byline.textContent   = 'by Logic Foundry';
+    const glyph = document.querySelector('header .bg-amber-brand span');
+    if (glyph) glyph.textContent = 'Y';
+  }
+}
+ 
  
 /* ═══════════════════════════════════════════════════════════════
    SHARED CHART STYLE TOKENS
@@ -39,12 +96,12 @@ const sharedOptions = {
     legend: { display: false },
     tooltip: {
       backgroundColor: '#162033',
-      borderColor: C.gridLine,
-      borderWidth: 1,
-      titleColor: C.labelColor,
-      bodyColor:  C.tickColor,
-      titleFont:  { family: C.fontMono, size: 11 },
-      bodyFont:   { family: C.fontMono, size: 11 },
+      borderColor:     C.gridLine,
+      borderWidth:     1,
+      titleColor:      C.labelColor,
+      bodyColor:       C.tickColor,
+      titleFont:       { family: C.fontMono, size: 11 },
+      bodyFont:        { family: C.fontMono, size: 11 },
       padding: 10,
       callbacks: { label: (ctx) => `  ${ctx.parsed.x ?? ctx.parsed.y} members` },
     },
@@ -73,6 +130,7 @@ function showCanvas(placeholderId, canvasId) {
 function safeDestroy(key) {
   if (chartInstances[key]) { chartInstances[key].destroy(); chartInstances[key] = null; }
 }
+ 
  
 /* ═══════════════════════════════════════════════════════════════
    RENDER CHARTS
@@ -177,6 +235,7 @@ function renderCharts(metrics) {
   });
 }
  
+ 
 /* ═══════════════════════════════════════════════════════════════
    ANALYTICS ENGINE
 ═══════════════════════════════════════════════════════════════ */
@@ -195,8 +254,13 @@ function ageBucket(age) {
   return '65+';
 }
  
-function analyseData(rawData) {
+function analyseData(rawData, file) {
   setStatus('processing', 'Analyzing…');
+ 
+  // ── Detect org profile BEFORE metrics are computed ──────
+  _orgProfile = detectOrgProfile(file, rawData);
+  applyOrgBranding(_orgProfile);
+  console.log(`Y-Reach · Org profile detected: "${_orgProfile}"`);
  
   const data = rawData.map(sanitizeRow);
  
@@ -226,9 +290,10 @@ function analyseData(rawData) {
     ? Math.round((counts.reduce((s, n) => s + n, 0) / counts.length) * 10) / 10
     : 0;
  
-  // Derived counts used by narrative generator
-  const youthCount   = (ageBuckets['0-12'] ?? 0) + (ageBuckets['13-17'] ?? 0);
-  const seniorCount  = ageBuckets['65+'] ?? 0;
+  const youthCount  = (ageBuckets['0-12'] ?? 0) + (ageBuckets['13-17'] ?? 0);
+  const seniorCount = ageBuckets['65+'] ?? 0;
+  // Adult learner count (18–64) — primary RIEC enrollment demographic
+  const adultCount  = (ageBuckets['18-24'] ?? 0) + (ageBuckets['25-64'] ?? 0);
  
   const metrics = {
     totalUnique,
@@ -237,16 +302,19 @@ function analyseData(rawData) {
     youthAvgVisits,
     youthCount,
     seniorCount,
+    adultCount,
     assistanceCount: uniqueMembers.filter(m => m.Financial_Assistance_Flag).length,
     zipCount:        Object.keys(geoImpact).length,
     zipList:         Object.keys(geoImpact).join(', '),
     hasYouth:        uniqueMembers.some(m => m.Age < 18),
+    hasAdults:       uniqueMembers.some(m => m.Age >= 18 && m.Age <= 64),
     hasLowIncome:    uniqueMembers.some(m => m.Financial_Assistance_Flag),
+    orgProfile:      _orgProfile,
   };
  
   console.log('Y-Reach · Analytics Complete', metrics);
  
-  _metrics = metrics;   // expose to narrative generator
+  _metrics = metrics;
   updateKPIs(metrics);
   renderCharts(metrics);
   fetchGrants(metrics);
@@ -259,69 +327,6 @@ function updateKPIs(metrics) {
   document.getElementById('kpi-youth-avg').textContent  = metrics.youthAvgVisits;
 }
  
-/* ═══════════════════════════════════════════════════════════════
-   NARRATIVE GENERATOR
-   Each paragraph targets a distinct job in a grant application:
-   P1 → Who we are and how many people we serve (credibility)
-   P2 → The specific impact data the grant cares most about
-   P3 → Why this funding amount is justified and geo-appropriate
-═══════════════════════════════════════════════════════════════ */
-function generateNarrative(metrics, grant) {
-  const tags       = grant.target_demographics ?? [];
-  const isYouth    = tags.includes('youth');
-  const isLowInc   = tags.includes('low-income');
-  const isSenior   = tags.includes('senior');
-  const isHealth   = tags.includes('health-wellness');
-  const isNational = grant.geographic_scope === 'national';
-  const isState    = grant.geographic_scope === 'state';
- 
-  const fmt = (n) => n >= 1000 ? `$${(n / 1000).toFixed(0)},000` : `$${n}`;
-  const amountRange = (grant.amount_min && grant.amount_max && grant.amount_min !== grant.amount_max)
-    ? `${fmt(grant.amount_min)}–${fmt(grant.amount_max)}`
-    : grant.amount_max ? `up to ${fmt(grant.amount_max)}` : 'the requested amount';
- 
-  /* ── Paragraph 1: Mission & Reach ─────────────────────────
-     Establishes organisational identity and total scale.
-     Every grant reviewer reads this first — it must land
-     the core numbers immediately.                            */
-  const p1 = `Our YMCA facility serves as a cornerstone of community wellness and development, providing programming that is accessible to all residents regardless of socioeconomic background. During the reporting period, our facility served ${metrics.totalUnique} unduplicated community members — each individual counted once regardless of visit frequency — spanning ${metrics.zipCount} distinct zip code${metrics.zipCount !== 1 ? 's' : ''} across our service area.`;
- 
-  /* ── Paragraph 2: Target-specific impact data ─────────────
-     Speaks directly to the grant's stated priority.
-     The logic branches on demographic tags so the cited
-     statistics are always the most relevant available.      */
-  let p2;
-  if (isYouth && isLowInc) {
-    p2 = `A core pillar of our programming is subsidized access for youth in financial need. Of our total membership, ${metrics.youthCount} members are under the age of 18, and ${metrics.assistanceCount} individuals across all ages are enrolled in our financial assistance program. Critically, subsidized youth members averaged ${metrics.youthAvgVisits} visits per person during this period — a figure that demonstrates sustained engagement, not one-time participation. These members represent households in zip codes ${metrics.zipList}, communities where consistent access to structured recreation and enrichment programs is a documented gap.`;
-  } else if (isYouth) {
-    p2 = `Youth programming is central to our facility's mission. During the reporting period, ${metrics.youthCount} members under the age of 18 engaged with our programs, averaging ${metrics.youthAvgVisits} visits per youth member. This average reflects consistent, repeat engagement — evidence of programming that families rely on and return to, not a passive drop-in service. Our youth membership spans zip codes ${metrics.zipList}, representing a geographic footprint that extends well beyond a single neighborhood.`;
-  } else if (isLowInc) {
-    p2 = `Ensuring equitable access is fundamental to our operating model. ${metrics.assistanceCount} of our ${metrics.totalUnique} unduplicated members — ${Math.round((metrics.assistanceCount / metrics.totalUnique) * 100)}% of total reach — are enrolled in our financial assistance program. These members are concentrated across zip codes ${metrics.zipList}, providing clear geospatial evidence of the low-income communities our subsidy model is actively serving. No member was turned away due to inability to pay during this reporting period.`;
-  } else if (isSenior) {
-    p2 = `Our senior programming addresses critical health, wellness, and social isolation needs in our community. During the reporting period, ${metrics.seniorCount} members aged 65 and older participated in our facility's programs. Our total membership of ${metrics.totalUnique} unduplicated individuals spans a wide age range, with senior-specific programming complementing our broader community wellness offerings across zip codes ${metrics.zipList}.`;
-  } else if (isHealth) {
-    p2 = `Our facility's health and wellness programming reaches ${metrics.totalUnique} unduplicated community members, providing structured physical activity and wellness services that directly address documented public health priorities. Members with financial assistance — ${metrics.assistanceCount} individuals — have access to the same full suite of wellness programming as paying members, with subsidized youth averaging ${metrics.youthAvgVisits} visits per person, demonstrating meaningful, sustained health behavior engagement.`;
-  } else {
-    p2 = `Our data reflects a facility with broad community reach and a strong commitment to equitable access. Of ${metrics.totalUnique} unduplicated members, ${metrics.assistanceCount} participate through our financial assistance program. Our geographic footprint covers ${metrics.zipCount} zip code${metrics.zipCount !== 1 ? 's' : ''} (${metrics.zipList}), and subsidized youth members averaged ${metrics.youthAvgVisits} visits per person — demonstrating the depth of engagement our programming generates, not merely headline enrollment numbers.`;
-  }
- 
-  /* ── Paragraph 3: Closing Argument ────────────────────────
-     Bridges the facility's demonstrated impact directly to
-     the requested funding amount. Geographic scope shapes
-     the framing: local grants need neighbourhood specificity;
-     state grants need RI-wide context; federal grants need
-     replicability language.                                  */
-  let p3;
-  if (isNational) {
-    p3 = `We respectfully request ${amountRange} in funding through the ${grant.title} program. Our facility's model — subsidized access, data-verified community reach, and consistent re-engagement metrics — represents precisely the type of scalable, community-anchored programming this grant is designed to support. The impact data presented above is derived directly from our facility management system and represents verified, deduplicated attendance records, providing the evidentiary standard that federal grant committees require.`;
-  } else if (isState) {
-    p3 = `We respectfully request ${amountRange} through the ${grant.title} program. As a Rhode Island-based nonprofit serving members across ${metrics.zipCount} zip codes within the state, our facility is positioned to deploy these funds immediately into programs with demonstrated, measurable impact. The geospatial and demographic data presented in this application reflects real-time facility records and provides the granular community impact evidence that state-level funders depend on when making allocation decisions.`;
-  } else {
-    p3 = `We respectfully request ${amountRange} in support through the ${grant.title} program. The quantitative impact evidence presented in this application — ${metrics.totalUnique} unduplicated members, ${metrics.assistanceCount} individuals on financial assistance, and a ${metrics.youthAvgVisits}-visit average for subsidized youth — reflects our facility's ongoing commitment to measurable community outcomes. These funds would directly sustain and expand the programming capacity that generated these results.`;
-  }
- 
-  return [p1, p2, p3].join('\n\n');
-}
  
 /* ═══════════════════════════════════════════════════════════════
    GRANT MATCHMAKER
@@ -353,15 +358,47 @@ async function fetchGrants(metrics) {
   setStatus('done', `Matches found · ${matches.length} recommendations`);
 }
  
+/* ── buildFacilityTags ────────────────────────────────────────
+   The facility's demographic résumé, tailored per org profile.
+ 
+   YMCA profile:  standard youth + low-income tags.
+   RIEC profile:  workforce-dev and adult-ed are elevated to
+                  primary tags; youth/low-income remain if
+                  applicable so general grants still surface.
+ 
+   Think of it as two different job applicants using the same
+   base CV but highlighting different skills for different
+   employers — the underlying facts are identical, the
+   emphasis shifts.                                           */
 function buildFacilityTags(metrics) {
   const tags = [];
-  if (metrics.hasYouth)    tags.push('youth');
-  if (metrics.hasLowIncome) tags.push('low-income');
+ 
+  if (metrics.orgProfile === 'riec') {
+    // RIEC-first tag order — workforce tags always present
+    // because RIEC's mission is workforce education by definition
+    tags.push('workforce-dev');
+    tags.push('adult-ed');
+    tags.push('healthcare-edu');   // RIEC's CNA/EMT pipeline
+ 
+    // Standard tags appended second so RIEC still matches
+    // general low-income and youth grants where eligible
+    if (metrics.hasLowIncome) tags.push('low-income');
+    if (metrics.hasYouth)     tags.push('youth');
+    if (metrics.hasAdults)    tags.push('community-development');
+ 
+  } else {
+    // YMCA default profile
+    if (metrics.hasYouth)     tags.push('youth');
+    if (metrics.hasLowIncome) tags.push('low-income');
+  }
+ 
   return tags;
 }
  
 function evaluateMatches(metrics, grants) {
   const facilityTags = buildFacilityTags(metrics);
+  console.log('Y-Reach · Facility tags for matching:', facilityTags);
+ 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
  
@@ -396,6 +433,81 @@ function evaluateMatches(metrics, grants) {
     .slice(0, 3);
 }
  
+ 
+/* ═══════════════════════════════════════════════════════════════
+   NARRATIVE GENERATOR
+═══════════════════════════════════════════════════════════════ */
+function generateNarrative(metrics, grant) {
+  const tags       = grant.target_demographics ?? [];
+  const isYouth    = tags.includes('youth');
+  const isLowInc   = tags.includes('low-income');
+  const isSenior   = tags.includes('senior');
+  const isHealth   = tags.includes('health-wellness');
+  const isWorkforce = tags.includes('workforce-dev');
+  const isHealthEdu = tags.includes('healthcare-edu');
+  const isAdultEd  = tags.includes('adult-ed');
+  const isRIEC     = metrics.orgProfile === 'riec';
+  const isNational = grant.geographic_scope === 'national';
+  const isState    = grant.geographic_scope === 'state';
+ 
+  const fmt = (n) => n >= 1000 ? `$${(n / 1000).toFixed(0)},000` : `$${n}`;
+  const amountRange = (grant.amount_min && grant.amount_max && grant.amount_min !== grant.amount_max)
+    ? `${fmt(grant.amount_min)}–${fmt(grant.amount_max)}`
+    : grant.amount_max ? `up to ${fmt(grant.amount_max)}` : 'the requested amount';
+ 
+  /* ── Paragraph 1: Mission & Reach ────────────────────────── */
+  const orgName = isRIEC
+    ? 'The Rhode Island Education Center for H.O.P.E. (RIEC)'
+    : 'our YMCA facility';
+ 
+  const p1 = isRIEC
+    ? `${orgName} is a Rhode Island-based 501(c)(3) nonprofit dedicated to creating clear, accessible pathways to sustainable employment through healthcare and workforce education. Our programming removes economic barriers to credentialing by combining tuition support, wraparound services, and employer-connected training models. During the reporting period, RIEC served ${metrics.totalUnique} unduplicated program participants across ${metrics.zipCount} zip code${metrics.zipCount !== 1 ? 's' : ''} in Rhode Island, with ${metrics.assistanceCount} individuals enrolled through our financial assistance and scholarship programs.`
+    : `${orgName} serves as a cornerstone of community wellness and development, providing programming that is accessible to all residents regardless of socioeconomic background. During the reporting period, our facility served ${metrics.totalUnique} unduplicated community members spanning ${metrics.zipCount} distinct zip code${metrics.zipCount !== 1 ? 's' : ''} across our service area.`;
+ 
+  /* ── Paragraph 2: Target-specific impact data ──────────────
+     Branches on both org profile and grant tag for maximum
+     relevance — RIEC grants get workforce-specific language,
+     YMCA grants get the standard youth/wellness copy.        */
+  let p2;
+ 
+  if (isRIEC && (isHealthEdu || isWorkforce)) {
+    p2 = `Our flagship healthcare workforce pipeline directly addresses Rhode Island's critical shortage of credentialed frontline healthcare workers. ${metrics.adultCount} of our ${metrics.totalUnique} participants are adult learners between the ages of 18 and 64 — the primary demographic for CNA, EMT, and allied health certificate programs. Of these, ${metrics.assistanceCount} receive need-based financial assistance, reflecting our commitment to making healthcare careers accessible to low-income adults who cannot absorb training costs independently. Participants are drawn from zip codes ${metrics.zipList}, communities where healthcare employment is both a documented workforce need and a pathway out of economic instability.`;
+  } else if (isRIEC && isAdultEd) {
+    p2 = `Adult education is the foundation of RIEC's workforce model. Our participants enter our programs at varying literacy, numeracy, and credential levels, and our wraparound approach ensures they exit with industry-recognized certifications and employer connections. Of our ${metrics.totalUnique} program participants, ${metrics.adultCount} are working-age adults (18–64) and ${metrics.assistanceCount} are supported through our financial assistance program — evidence of the income barriers our model is specifically designed to dismantle. This population spans zip codes ${metrics.zipList} across Rhode Island.`;
+  } else if (isYouth && isLowInc) {
+    p2 = `A core pillar of our programming is subsidized access for youth in financial need. Of our total membership, ${metrics.youthCount} members are under the age of 18, and ${metrics.assistanceCount} individuals are enrolled in our financial assistance program. Subsidized youth members averaged ${metrics.youthAvgVisits} visits per person — demonstrating sustained engagement across zip codes ${metrics.zipList}.`;
+  } else if (isYouth) {
+    p2 = `Youth programming is central to our mission. During the reporting period, ${metrics.youthCount} members under the age of 18 engaged with our programs, averaging ${metrics.youthAvgVisits} visits per youth member across zip codes ${metrics.zipList}.`;
+  } else if (isLowInc) {
+    p2 = `${metrics.assistanceCount} of our ${metrics.totalUnique} unduplicated members — ${Math.round((metrics.assistanceCount / metrics.totalUnique) * 100)}% of total reach — are enrolled in our financial assistance program, concentrated across zip codes ${metrics.zipList}.`;
+  } else if (isSenior) {
+    p2 = `Our senior programming addresses health, wellness, and social isolation needs. During the reporting period, ${metrics.seniorCount} members aged 65 and older participated in our programs across zip codes ${metrics.zipList}.`;
+  } else {
+    p2 = `Our data reflects a community-facing organization with broad reach and a strong equity commitment. Of ${metrics.totalUnique} unduplicated members, ${metrics.assistanceCount} participate through financial assistance, and our footprint covers zip codes ${metrics.zipList}.`;
+  }
+ 
+  /* ── Paragraph 3: Closing Argument ─────────────────────── */
+  let p3;
+ 
+  if (isRIEC && isNational) {
+    p3 = `We respectfully request ${amountRange} through the ${grant.title} program. RIEC's model — community-rooted, employer-connected, and data-verified — is precisely the type of replicable healthcare workforce pipeline this grant is designed to scale. All impact data presented reflects verified, deduplicated enrollment records from our program management system, meeting the evidentiary standard required for federal grant reporting.`;
+  } else if (isRIEC && isState) {
+    p3 = `We respectfully request ${amountRange} through the ${grant.title} program. As a Rhode Island-based nonprofit with an established healthcare training infrastructure, RIEC is positioned to deploy these funds immediately. Our enrollment data — ${metrics.totalUnique} participants across ${metrics.zipCount} zip codes, with ${metrics.assistanceCount} on financial assistance — provides the granular community impact evidence that state funders require when making workforce investment decisions.`;
+  } else if (isNational) {
+    p3 = `We respectfully request ${amountRange} in funding through the ${grant.title} program. Our community-anchored model and data-verified reach represent the type of scalable, measurable impact this grant is designed to support. All figures are derived directly from verified, deduplicated attendance records.`;
+  } else if (isState) {
+    p3 = `We respectfully request ${amountRange} through the ${grant.title} program. As a Rhode Island-based nonprofit serving members across ${metrics.zipCount} zip codes, we are positioned to deploy these funds immediately into programs with demonstrated, measurable community impact.`;
+  } else {
+    p3 = `We respectfully request ${amountRange} in support through the ${grant.title} program. The quantitative evidence presented — ${metrics.totalUnique} unduplicated participants, ${metrics.assistanceCount} individuals on financial assistance — reflects our ongoing commitment to measurable community outcomes.`;
+  }
+ 
+  return [p1, p2, p3].join('\n\n');
+}
+ 
+ 
+/* ═══════════════════════════════════════════════════════════════
+   GRANT CARD RENDERER
+═══════════════════════════════════════════════════════════════ */
 function scoreLabel(score) {
   if (score >= 75) return { text: 'High Match',   color: 'text-green-400',   bar: '#4ade80' };
   if (score >= 40) return { text: 'Medium Match', color: 'text-amber-brand', bar: '#E8A020' };
@@ -416,7 +528,6 @@ function formatDeadline(iso) {
     .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
  
-/* ── renderGrantCards ─────────────────────────────────────── */
 function renderGrantCards(matches) {
   const grid = document.getElementById('grants-grid');
  
@@ -434,40 +545,39 @@ function renderGrantCards(matches) {
     return;
   }
  
+  const dollarIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0"
+    fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879
+         1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725
+         0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879
+         4.006 0l.415.33"/></svg>`;
+ 
+  const calIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0"
+    fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5
+         A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25
+         2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25
+         0 0121 11.25v7.5"/></svg>`;
+ 
+  const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0"
+    fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166
+         1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75
+         0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11
+         1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0
+         01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057
+         1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>`;
+ 
   grid.innerHTML = matches.map((g, cardIndex) => {
     const { text: scoreText, color: scoreColor, bar: barColor } = scoreLabel(g._score);
- 
     const badge = (icon, content, extraClass = '') => `
       <span class="flex items-center gap-1.5 font-mono text-[11px] bg-navy
                    border border-slate-border rounded-full px-3 py-1 ${extraClass}">
         ${icon}${content}
       </span>`;
- 
-    const dollarIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0"
-      fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-      <path stroke-linecap="round" stroke-linejoin="round"
-        d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879
-           1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725
-           0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879
-           4.006 0l.415.33"/></svg>`;
- 
-    const calIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0"
-      fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-      <path stroke-linecap="round" stroke-linejoin="round"
-        d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5
-           A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25
-           2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25
-           0 0121 11.25v7.5"/></svg>`;
- 
-    const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0"
-      fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-      <path stroke-linecap="round" stroke-linejoin="round"
-        d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166
-           1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75
-           0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11
-           1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0
-           01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057
-           1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>`;
  
     const urgency = g._daysLeft !== null && g._daysLeft >= 0 && g._daysLeft <= 30
       ? ` <span class="text-red-400">· ${g._daysLeft}d left</span>` : '';
@@ -484,31 +594,21 @@ function renderGrantCards(matches) {
     return `
       <div class="grant-card rounded-xl bg-slate-card border border-slate-border p-5
                   flex flex-col gap-4">
- 
-        <!-- Header -->
         <div>
           <p class="font-mono text-[10px] uppercase tracking-widest text-slate-500 mb-1 truncate">
             ${g.funder ?? 'Unknown Funder'}
           </p>
           <h3 class="font-display text-lg text-white leading-snug">${g.title}</h3>
         </div>
- 
-        <!-- Description -->
         <p class="font-body text-slate-400 text-xs leading-relaxed"
            style="-webkit-line-clamp:3;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;">
           ${g.description ?? ''}
         </p>
- 
-        <!-- KPI Badges -->
         <div class="flex flex-wrap gap-2">
           ${badge(dollarIcon, formatAmount(g.amount_min, g.amount_max), 'text-amber-brand')}
-          ${badge(calIcon,    `${formatDeadline(g.deadline)}${urgency}`, 'text-slate-300')}
+          ${badge(calIcon, `${formatDeadline(g.deadline)}${urgency}`, 'text-slate-300')}
         </div>
- 
-        <!-- Demographic Tags -->
         <div class="flex flex-wrap gap-1.5">${tagPills}</div>
- 
-        <!-- Match Score -->
         <div class="flex flex-col gap-1.5 mt-auto pt-3 border-t border-slate-border">
           <div class="flex items-center justify-between">
             <span class="font-mono text-[10px] uppercase tracking-widest text-slate-500">
@@ -524,11 +624,6 @@ function renderGrantCards(matches) {
                  data-target-width="${g._score}%"></div>
           </div>
         </div>
- 
-        <!-- Actions: View Grant + Copy Narrative ────────────
-             Two distinct jobs: View opens the live grant URL;
-             Copy drafts the narrative and puts it on the
-             clipboard, ready to paste into any grant portal. -->
         <div class="flex gap-2 mt-1">
           <a href="${g.url ?? '#'}" target="_blank" rel="noopener noreferrer"
              class="btn-grant flex-1 block text-center font-mono text-xs font-medium
@@ -545,15 +640,12 @@ function renderGrantCards(matches) {
             <span class="btn-copy-label">Copy Draft Narrative</span>
           </button>
         </div>
- 
       </div>`;
   }).join('');
  
-  // Store matches on the grid element so click handler can access them
   grid._matches = matches;
   grid.classList.remove('hidden');
  
-  /* Animate match bars */
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       grid.querySelectorAll('.match-bar-fill[data-target-width]').forEach(bar => {
@@ -562,22 +654,15 @@ function renderGrantCards(matches) {
     });
   });
  
-  /* ── Copy button delegation ───────────────────────────────
-     Single listener on the grid — far cheaper than one per
-     card. Think of it as a concierge desk in a hotel lobby:
-     one desk handles requests from any room.               */
   grid.addEventListener('click', handleCopyClick);
 }
  
-/* ── handleCopyClick: clipboard write + button feedback ────── */
+/* ── handleCopyClick ─────────────────────────────────────────── */
 async function handleCopyClick(e) {
   const btn = e.target.closest('.btn-copy-narrative');
-  if (!btn) return;
+  if (!btn || !_metrics) return;
  
-  if (!_metrics) return;   // CSV not loaded yet (shouldn't happen, but guard anyway)
- 
-  const cardIndex = parseInt(btn.dataset.cardIndex, 10);
-  const grant     = document.getElementById('grants-grid')._matches?.[cardIndex];
+  const grant = document.getElementById('grants-grid')._matches?.[parseInt(btn.dataset.cardIndex, 10)];
   if (!grant) return;
  
   const narrative = generateNarrative(_metrics, grant);
@@ -585,21 +670,15 @@ async function handleCopyClick(e) {
  
   try {
     await navigator.clipboard.writeText(narrative);
- 
-    /* Success feedback — swap label, style, then restore after 2s */
     label.textContent = 'Copied!';
     btn.classList.replace('text-slate-400', 'text-green-400');
     btn.classList.replace('border-slate-border', 'border-green-700/40');
- 
     setTimeout(() => {
       label.textContent = 'Copy Draft Narrative';
       btn.classList.replace('text-green-400', 'text-slate-400');
       btn.classList.replace('border-green-700/40', 'border-slate-border');
     }, 2000);
- 
-  } catch (err) {
-    /* Fallback for browsers that block clipboard API without HTTPS */
-    console.warn('Clipboard API failed — falling back to execCommand', err);
+  } catch {
     const ta = Object.assign(document.createElement('textarea'), {
       value: narrative, style: 'position:fixed;opacity:0;'
     });
@@ -607,11 +686,11 @@ async function handleCopyClick(e) {
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
- 
     label.textContent = 'Copied!';
     setTimeout(() => { label.textContent = 'Copy Draft Narrative'; }, 2000);
   }
 }
+ 
  
 /* ═══════════════════════════════════════════════════════════════
    CSV INGESTION
@@ -629,7 +708,7 @@ function parseCSV(file) {
       console.log('Data      :', results.data);
       console.groupEnd();
       if (results.errors.length) console.warn('Parse warnings:', results.errors);
-      analyseData(results.data);
+      analyseData(results.data, file);   // ← pass file for profile detection
     },
     error(err) {
       console.error('Papa Parse error:', err);
@@ -648,6 +727,7 @@ function handleFile(file) {
   fileLoadedBadge.classList.add('flex');
   parseCSV(file);
 }
+ 
  
 /* ═══════════════════════════════════════════════════════════════
    EVENT LISTENERS
@@ -669,7 +749,7 @@ csvInput.addEventListener('change', () => {
   if (csvInput.files[0]) handleFile(csvInput.files[0]);
 });
  
-/* ── Status pill ──────────────────────────────────────────── */
+/* ── Status pill ─────────────────────────────────────────────── */
 function setStatus(state, message) {
   const dot = statusPill.querySelector('span');
   const colors = {
