@@ -1,6 +1,3 @@
-App · JS
-Copy
-
 /* ─────────────────────────────────────────────────────────────
    Y-Reach / RIEC-Reach Analytics · app.js
    Phase 4+: Multi-org profile support (YMCA + RIEC).
