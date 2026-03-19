@@ -1,0 +1,62 @@
+[
+  {
+    "id": "seed_ys_fund_001",
+    "title": "Youth Sports & Recreation Grant",
+    "funder": "Rhode Island Foundation",
+    "amount_min": 5000,
+    "amount_max": 25000,
+    "deadline": "2025-11-01",
+    "url": "https://www.rifoundation.org/grants-support/grants",
+    "target_demographics": ["youth", "low-income", "health-wellness"],
+    "min_subsidized_youth": 15,
+    "min_unique_members": 30,
+    "geographic_scope": "state",
+    "description": "Supports RI nonprofits providing youth sports and recreation programming to underserved communities.",
+    "last_updated": "2025-03-19"
+  },
+  {
+    "id": "seed_21cclc_001",
+    "title": "21st Century Community Learning Centers",
+    "funder": "U.S. Department of Education",
+    "amount_min": 50000,
+    "amount_max": 400000,
+    "deadline": "2025-08-15",
+    "url": "https://www.grants.gov/search-results-detail/21CCLC",
+    "target_demographics": ["youth", "low-income", "community-development"],
+    "min_subsidized_youth": 50,
+    "min_unique_members": 100,
+    "geographic_scope": "national",
+    "description": "Federal funding for after-school, before-school, and summer programs for students in low-income Title I schools.",
+    "last_updated": "2025-03-19"
+  },
+  {
+    "id": "seed_champ_capital_001",
+    "title": "Champlin Foundation Capital Grant",
+    "funder": "The Champlin Foundation",
+    "amount_min": 10000,
+    "amount_max": 100000,
+    "deadline": "2025-10-01",
+    "url": "https://www.champlinfoundation.org/apply",
+    "target_demographics": ["community-development", "youth", "health-wellness"],
+    "min_subsidized_youth": 0,
+    "min_unique_members": 20,
+    "geographic_scope": "state",
+    "description": "Capital grants for RI nonprofits for facility improvements, equipment, and infrastructure serving the public.",
+    "last_updated": "2025-03-19"
+  },
+  {
+    "id": "seed_snap_ed_001",
+    "title": "SNAP-Ed Community Nutrition Program",
+    "funder": "USDA Food & Nutrition Service",
+    "amount_min": 10000,
+    "amount_max": 75000,
+    "deadline": "2025-09-30",
+    "url": "https://snaped.fns.usda.gov/",
+    "target_demographics": ["low-income", "youth", "health-wellness"],
+    "min_subsidized_youth": 10,
+    "min_unique_members": 25,
+    "geographic_scope": "national",
+    "description": "Funds nutrition education and obesity prevention programs for SNAP-eligible populations.",
+    "last_updated": "2025-03-19"
+  }
+]

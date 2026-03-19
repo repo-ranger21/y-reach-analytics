@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────
+# Y-Reach Analytics · Grant Scraper Workflow
+# Runs daily at midnight UTC, commits updated grants.json.
+# ─────────────────────────────────────────────────────────────
+
+name: Scrape Grants
+
+on:
+  schedule:
+    - cron: "0 0 * * *"   # 00:00 UTC daily
+  workflow_dispatch:       # allow manual trigger from Actions tab
+
+# Grant write access to repo contents so the bot can commit
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    name: Run Grant Scraper
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 1. Check out the full repo (needed to read/write grants.json)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1   # shallow clone is sufficient
+
+      # 2. Set up Python
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 lxml
+
+      # 4. Snapshot existing grants.json BEFORE the scrape.
+      #    This is the fail-safe: if the scraper writes nothing,
+      #    we restore the snapshot in step 6.
+      - name: Snapshot existing grants.json
+        run: |
+          if [ -f grants.json ]; then
+            cp grants.json grants.json.bak
+            echo "SNAPSHOT_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "SNAPSHOT_EXISTS=false" >> $GITHUB_ENV
+          fi
+
+      # 5. Run the scraper
+      - name: Run scraper.py
+        id: scrape
+        run: python scraper.py
+        continue-on-error: true   # step failure won't abort the job
+
+      # 6. Fail-safe: if scraper crashed OR grants.json is now empty,
+      #    restore the snapshot so we never ship an empty data file.
+      - name: Restore snapshot on failure
+        if: steps.scrape.outcome == 'failure' || steps.scrape.outcome == 'cancelled'
+        run: |
+          if [ "$SNAPSHOT_EXISTS" = "true" ]; then
+            cp grants.json.bak grants.json
+            echo "Scraper failed — restored previous grants.json."
+          else
+            echo "No snapshot available and scraper failed. grants.json unchanged."
+          fi
+
+      # 7. Validate that grants.json is non-empty valid JSON
+      - name: Validate grants.json
+        run: |
+          python - << 'PYCHECK'
+          import json, sys
+          try:
+              with open("grants.json") as f:
+                  data = json.load(f)
+              if not isinstance(data, list) or len(data) == 0:
+                  print("::error::grants.json is empty or not a list — aborting commit.")
+                  sys.exit(1)
+              print(f"grants.json valid — {len(data)} grants present.")
+          except Exception as e:
+              print(f"::error::grants.json parse error: {e}")
+              sys.exit(1)
+          PYCHECK
+
+      # 8. Commit and push only if grants.json actually changed
+      - name: Commit updated grants.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add grants.json
+          # Exit 0 silently if nothing changed (idempotent)
+          git diff --cached --quiet && echo "No changes to commit." && exit 0
+          git commit -m "chore(data): refresh grants.json [$(date -u +%Y-%m-%d)]"
+          git push
